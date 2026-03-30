@@ -1,0 +1,3 @@
+models/*.pt
+output_videos/*.avi
+output_videos/*.mp4
