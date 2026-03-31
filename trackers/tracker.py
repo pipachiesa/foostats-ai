@@ -117,6 +117,24 @@ class Tracker:
 
             # Convert YOLO detections to Supervision format
             detection_supervision = sv.Detections.from_ultralytics(detection)
+            ball_class_id = cls_names_inv["ball"]
+            ball_mask = detection_supervision.class_id == ball_class_id
+
+            if np.any(ball_mask):
+                ball_detections = detection_supervision[ball_mask]
+
+                # Filter low-confidence ball detections
+                ball_detections = ball_detections[ball_detections.confidence > 0.5]
+
+                # Keep only highest-confidence ball detection per frame
+                if len(ball_detections) > 1:
+                    best_idx = ball_detections.confidence.argmax()
+                    ball_detections = ball_detections[best_idx:best_idx+1]
+
+                non_ball_detections = detection_supervision[~ball_mask]
+                detection_supervision = sv.Detections.merge(
+                    [non_ball_detections, ball_detections]
+                )
 
             # Track objects (goalkeepers go through ByteTrack as their own class)
             detection_with_tracks = self.tracker.update_with_detections(detection_supervision)
