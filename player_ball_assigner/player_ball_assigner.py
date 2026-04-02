@@ -7,7 +7,7 @@ from utils import get_center_of_bbox, measure_distance
 
 
 class PlayerBallAssigner:
-    POSSESSION_MAX_DISTANCE = 70  # pixels — no possession if the ball is not truly near a player
+    POSSESSION_MAX_DISTANCE = 120  # ~2.5m at typical broadcast camera scale
 
     def __init__(self):
         self._last_assigned = -1  # estado para histéresis

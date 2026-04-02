@@ -29,6 +29,7 @@ class PassDetector:
         """
         possession_per_frame = self._build_possession_per_frame(tracks)
         segments = self._build_possession_segments(possession_per_frame)
+        print(f"  [PassDetector] {len(segments)} possession segments found")
         ball_positions = self._build_ball_positions(tracks)
         return self._match_passes(segments, ball_positions)
 
@@ -62,39 +63,36 @@ class PassDetector:
         current_player = None
         current_team = None
         start_frame = None
+        last_possession_frame = None  # track actual last frame with possession
 
         for frame_num, poss in enumerate(possession_per_frame):
             if poss is not None:
                 player_id, team = poss
                 if player_id == current_player:
-                    continue  # extend current segment
+                    last_possession_frame = frame_num  # extend
                 else:
-                    # close previous segment
-                    if current_player is not None:
+                    # close previous segment using actual last possession frame
+                    if current_player is not None and last_possession_frame is not None:
                         segments.append({
                             'player_id': current_player,
                             'team': current_team,
                             'frame_start': start_frame,
-                            'frame_end': frame_num - 1,
-                            'length': frame_num - start_frame,
+                            'frame_end': last_possession_frame,  # actual last frame
+                            'length': last_possession_frame - start_frame + 1,
                         })
                     current_player = player_id
                     current_team = team
                     start_frame = frame_num
-            else:
-                # no possession this frame — don't close segment yet,
-                # allow small gaps (the pass transit itself)
-                pass
+                    last_possession_frame = frame_num
 
         # close last segment
-        if current_player is not None:
-            end = len(possession_per_frame) - 1
+        if current_player is not None and last_possession_frame is not None:
             segments.append({
                 'player_id': current_player,
                 'team': current_team,
                 'frame_start': start_frame,
-                'frame_end': end,
-                'length': end - start_frame + 1,
+                'frame_end': last_possession_frame,
+                'length': last_possession_frame - start_frame + 1,
             })
 
         return segments
