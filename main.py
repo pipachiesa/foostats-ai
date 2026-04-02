@@ -211,6 +211,11 @@ def main():
         json.dump(passes, f, indent=2)
     print(f"Pass data saved to {passes_path}")
 
+    # Expose final pipeline state for Colab-side debugging after main() completes.
+    import main as _self
+    _self._debug_all_tracks = all_tracks
+    _self._debug_team_ball_control = team_ball_control
+
     print(f"Done. Output: {OUTPUT_PATH} ({frames_written} frames)")
 
 
