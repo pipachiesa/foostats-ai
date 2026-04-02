@@ -13,6 +13,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from utils import get_center_of_bbox, get_bbox_width, get_foot_position
 
 class Tracker:
+    POSSESSION_WINDOW_FRAMES = 150  # smooth the overlay over ~6 seconds instead of raw frame-to-frame swings
+
     def __init__(self, model_path):
         self.model = YOLO(model_path)
         # Tuned ByteTrack params to reduce ID drift during camera pans/occlusions:
@@ -245,11 +247,16 @@ class Tracker:
         alpha = 0.4
         cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
-        team_ball_control_till_frame = team_ball_control[:frame_offset + frame_num + 1]
-        # Get the amount of time each team has the ball control
-        team_1_num_frames = team_ball_control_till_frame[team_ball_control_till_frame==1].shape[0]
-        team_2_num_frames = team_ball_control_till_frame[team_ball_control_till_frame==2].shape[0]
-        total_frames = team_1_num_frames + team_2_num_frames
+        # Use a rolling window so short turnovers do not dominate the on-screen percentage.
+        current_idx = frame_offset + frame_num + 1
+        window_start = max(0, current_idx - self.POSSESSION_WINDOW_FRAMES)
+        team_ball_control_till_frame = team_ball_control[window_start:current_idx]
+
+        # Exclude frames with no possession so they do not count for either team.
+        valid = team_ball_control_till_frame[team_ball_control_till_frame > 0]
+        team_1_num_frames = (valid == 1).sum()
+        team_2_num_frames = (valid == 2).sum()
+        total_frames = len(valid)
         team_1 = team_1_num_frames / total_frames if total_frames > 0 else 0
         team_2 = team_2_num_frames / total_frames if total_frames > 0 else 0
         

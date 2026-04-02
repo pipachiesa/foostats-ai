@@ -7,8 +7,9 @@ from utils import get_center_of_bbox, measure_distance
 
 
 class PlayerBallAssigner:
+    POSSESSION_MAX_DISTANCE = 70  # pixels — no possession if the ball is not truly near a player
+
     def __init__(self):
-        self.max_player_ball_distance = 70
         self._last_assigned = -1  # estado para histéresis
         self._frames_with_current = 0  # max lock duration counter to prevent sticky possession
 
@@ -24,10 +25,15 @@ class PlayerBallAssigner:
             distance_right = measure_distance((player_bbox[2], player_bbox[-1]), ball_position)
             distance = min(distance_left, distance_right)
 
-            if distance < self.max_player_ball_distance:
-                if distance < minimum_distance:
-                    minimum_distance = distance
-                    assigned_player = player_id
+            if distance < minimum_distance:
+                minimum_distance = distance
+                assigned_player = player_id
+
+        # If the ball is not close enough to anyone, suppress possession entirely.
+        if minimum_distance > self.POSSESSION_MAX_DISTANCE:
+            self._last_assigned = -1
+            self._frames_with_current = 0
+            return -1
 
         # Max possession lock: release hysteresis after 30 frames (~1.2s at 25fps)
         # to prevent one team holding possession indefinitely
@@ -45,7 +51,7 @@ class PlayerBallAssigner:
                 measure_distance((last_bbox[0], last_bbox[-1]), ball_position),
                 measure_distance((last_bbox[2], last_bbox[-1]), ball_position)
             )
-            if last_dist < self.max_player_ball_distance:
+            if last_dist < self.POSSESSION_MAX_DISTANCE:
                 if assigned_player != self._last_assigned:
                     if minimum_distance > last_dist * 0.88:
                         assigned_player = self._last_assigned

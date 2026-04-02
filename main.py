@@ -149,7 +149,8 @@ def main():
                         window_tracks['players'][frame_num][assigned_player]['team']
                     )
                 else:
-                    window_ball_control.append(team_ball_control[-1] if team_ball_control else 1)
+                    # Store explicit no-possession frames as 0 so the overlay can exclude them.
+                    window_ball_control.append(0)
 
             team_ball_control.extend(window_ball_control)
             team_ball_control_arr = np.array(team_ball_control)
