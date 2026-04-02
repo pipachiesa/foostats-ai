@@ -8,6 +8,8 @@ from player_ball_assigner import PlayerBallAssigner
 from camara_movement_estimator import CamaraMovementEstimator
 from view_transformer import ViewTransformer
 from speed_and_distance_estimator import SpeedAndDistanceEstimator
+from event_detector import PassDetector
+import json
 
 
 def main():
@@ -75,6 +77,7 @@ def main():
     # --- Persistent state across windows ---
     accumulated_distance = {}
     team_ball_control = []          # rolling list, kept in memory (1 int per frame, ~1MB for 90min)
+    all_tracks = {'players': [], 'ball': [], 'goalkeepers': [], 'referees': []}
     player_assigner = PlayerBallAssigner()
     camera_movement_estimator = CamaraMovementEstimator(first_frame)
     view_transformer = ViewTransformer()
@@ -155,6 +158,11 @@ def main():
             team_ball_control.extend(window_ball_control)
             team_ball_control_arr = np.array(team_ball_control)
 
+            # 8b. Accumulate tracks for pass detection (non-overlap only)
+            keep = len(window_frames) if is_last else len(window_frames) - OVERLAP
+            for key in all_tracks:
+                all_tracks[key].extend(window_tracks[key][:keep])
+
             # 9. Draw annotations
             # Only render the non-overlap zone (all frames if last batch)
             frames_to_render = len(window_frames) if is_last else len(window_frames) - OVERLAP
@@ -183,6 +191,25 @@ def main():
             del window_frames, window_tracks, annotated_frames
     finally:
         writer.release()
+
+    # --- Pass detection ---
+    print("Detecting passes...")
+    pass_detector = PassDetector()
+    passes = pass_detector.detect(all_tracks, team_ball_control)
+
+    team_passes = sum(1 for p in passes if p['type'] == 'pass' and p['from_team'] == 1)
+    team2_passes = sum(1 for p in passes if p['type'] == 'pass' and p['from_team'] == 2)
+    interceptions = sum(1 for p in passes if p['type'] == 'interception')
+
+    print(f"Passes detected: {len(passes)}")
+    print(f"  Team 1 → Team 1: {team_passes}")
+    print(f"  Team 2 → Team 2: {team2_passes}")
+    print(f"  Interceptions: {interceptions}")
+
+    passes_path = 'output_videos/passes.json'
+    with open(passes_path, 'w') as f:
+        json.dump(passes, f, indent=2)
+    print(f"Pass data saved to {passes_path}")
 
     print(f"Done. Output: {OUTPUT_PATH} ({frames_written} frames)")
 
