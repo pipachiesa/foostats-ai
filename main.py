@@ -207,8 +207,19 @@ def main():
     print(f"  Interceptions: {interceptions}")
 
     passes_path = 'output_videos/passes.json'
+
+    class _NumpyEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, np.floating):
+                return float(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return super().default(obj)
+
     with open(passes_path, 'w') as f:
-        json.dump(passes, f, indent=2)
+        json.dump(passes, f, indent=2, cls=_NumpyEncoder)
     print(f"Pass data saved to {passes_path}")
 
     # Expose final pipeline state for Colab-side debugging after main() completes.
