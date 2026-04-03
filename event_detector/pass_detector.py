@@ -113,18 +113,34 @@ class PassDetector:
             ball = ball_frame[1]
             interpolated = ball.get('interpolated', False)
 
+            # Try field coords first (set by ViewTransformer if available)
             pos_t = ball.get('position_transformed')
             if pos_t is not None:
                 result[frame_num] = (pos_t[0], pos_t[1], True, interpolated)
-            else:
-                pos = ball.get('position_adjusted') or ball.get('position')
-                if pos is not None:
-                    result[frame_num] = (
-                        pos[0] * self.PIXEL_TO_METER,
-                        pos[1] * self.PIXEL_TO_METER,
-                        False,
-                        interpolated,
-                    )
+                continue
+
+            # Try adjusted pixel position (set by camera movement estimator)
+            pos = ball.get('position_adjusted') or ball.get('position')
+            if pos is not None:
+                result[frame_num] = (
+                    pos[0] * self.PIXEL_TO_METER,
+                    pos[1] * self.PIXEL_TO_METER,
+                    False,
+                    interpolated,
+                )
+                continue
+
+            # Primary fallback: compute center from bbox (always available)
+            bbox = ball.get('bbox')
+            if bbox is not None:
+                cx = (bbox[0] + bbox[2]) / 2
+                cy = (bbox[1] + bbox[3]) / 2
+                result[frame_num] = (
+                    cx * self.PIXEL_TO_METER,
+                    cy * self.PIXEL_TO_METER,
+                    False,
+                    interpolated,
+                )
 
         return result
 
@@ -158,19 +174,26 @@ class PassDetector:
         """
         passes = []
 
+        # Temporary debug — remove after verification
+        rejected = {'short_a': 0, 'short_b': 0, 'same_player': 0, 'gap': 0, 'dist': 0}
+
         for i in range(len(segments) - 1):
             seg_a = segments[i]
             seg_b = segments[i + 1]
 
             if seg_a['length'] < self.min_possession_frames:
+                rejected['short_a'] += 1
                 continue
             if seg_b['length'] < self.min_possession_frames:
+                rejected['short_b'] += 1
                 continue
             if seg_a['player_id'] == seg_b['player_id']:
+                rejected['same_player'] += 1
                 continue
 
             gap = seg_b['frame_start'] - seg_a['frame_end']
             if gap > self.max_pass_frames:
+                rejected['gap'] += 1
                 continue
 
             # Get ball position at end of A's possession (non-interpolated preferred)
@@ -194,6 +217,7 @@ class PassDetector:
 
             dist = self._distance(ball_start, ball_end)
             if dist < self.ball_travel_threshold:
+                rejected['dist'] += 1
                 continue
 
             is_same_team = seg_a['team'] == seg_b['team']
@@ -211,4 +235,5 @@ class PassDetector:
                 'distance_m': round(dist, 2),
             })
 
+        print(f"  [PassDetector] rejected: {rejected}")
         return passes
