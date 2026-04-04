@@ -5,8 +5,10 @@ import os
 import numpy as np
 import pandas as pd
 import cv2
+import torch
 import sys
 from pathlib import Path
+from boxmot import BotSort
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
@@ -17,16 +19,19 @@ class Tracker:
 
     def __init__(self, model_path):
         self.model = YOLO(model_path)
-        # Tuned ByteTrack params to reduce ID drift during camera pans/occlusions:
-        # - lower activation threshold to accept weaker detections for re-id
-        # - longer lost_track_buffer keeps disappeared tracks alive through pans
-        # - higher matching threshold for more permissive re-identification
-        self.tracker = sv.ByteTrack(
-            track_activation_threshold=0.25,
-            lost_track_buffer=60,
-            minimum_matching_threshold=0.8,
-            frame_rate=25
+        # BoT-SORT with built-in camera motion compensation (CMC) to reduce
+        # ID drift during broadcast camera pans.
+        self.tracker = BotSort(
+            reid_weights=None,
+            device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+            half=False,
+            track_high_thresh=0.25,
+            track_low_thresh=0.1,
+            track_buffer=60,
+            match_thresh=0.8,
+            frame_rate=25,
         )
+        print(f"  Tracker initialized: {type(self.tracker).__name__}")
 
     def add_position_to_tracks(self, tracks):
         for object, object_tracks in tracks.items():
@@ -122,51 +127,52 @@ class Tracker:
             ball_class_id = cls_names_inv["ball"]
             ball_mask = detection_supervision.class_id == ball_class_id
 
+            # --- Ball: detection-only (no tracker) ---
+            ball_bbox = None
             if np.any(ball_mask):
                 ball_detections = detection_supervision[ball_mask]
-
-                # Filter low-confidence ball detections
                 ball_detections = ball_detections[ball_detections.confidence > 0.5]
-
-                # Keep only highest-confidence ball detection per frame
                 if len(ball_detections) > 1:
                     best_idx = ball_detections.confidence.argmax()
                     ball_detections = ball_detections[best_idx:best_idx+1]
+                if len(ball_detections) > 0:
+                    ball_bbox = ball_detections.xyxy[0].tolist()
 
-                non_ball_detections = detection_supervision[~ball_mask]
-                detection_supervision = sv.Detections.merge(
-                    [non_ball_detections, ball_detections]
-                )
+            # --- Non-ball: track with BoT-SORT ---
+            non_ball = detection_supervision[~ball_mask]
+            if len(non_ball) > 0:
+                # boxmot expects [x1, y1, x2, y2, conf, class_id]
+                dets_np = np.column_stack([
+                    non_ball.xyxy,
+                    non_ball.confidence,
+                    non_ball.class_id.astype(float),
+                ])
+            else:
+                dets_np = np.empty((0, 6))
 
-            # Track objects (goalkeepers go through ByteTrack as their own class)
-            detection_with_tracks = self.tracker.update_with_detections(detection_supervision)
+            # Pass the actual frame for camera motion compensation
+            tracked = self.tracker.update(dets_np, frames[frame_num])
 
             tracks["players"].append({})
             tracks["referees"].append({})
             tracks["ball"].append({})
             tracks["goalkeepers"].append({})
 
-            for frame_detection in detection_with_tracks:
-                bbox = frame_detection[0].tolist()
-                cls_id = frame_detection[3]
-                track_id = frame_detection[4]
+            # Parse BoT-SORT output: [x1, y1, x2, y2, track_id, conf, class_id, ...]
+            for trk in tracked:
+                bbox = trk[0:4].tolist()
+                track_id = int(trk[4])
+                cls_id = int(trk[6]) if len(trk) > 6 else -1
 
-                if cls_id == cls_names_inv["player"]:
+                if cls_id == cls_names_inv.get("player", -1):
                     tracks["players"][frame_num][track_id] = {"bbox": bbox}
-
-                if cls_id == cls_names_inv["referee"]:
+                elif cls_id == cls_names_inv.get("referee", -1):
                     tracks["referees"][frame_num][track_id] = {"bbox": bbox}
-
-                if cls_id == cls_names_inv["goalkeeper"]:
+                elif cls_id == cls_names_inv.get("goalkeeper", -1):
                     tracks["goalkeepers"][frame_num][track_id] = {"bbox": bbox}
 
-            for frame_detection in detection_supervision:
-                bbox = frame_detection[0].tolist()
-                cls_id = frame_detection[3]
-                track_id = frame_detection[4]
-
-                if cls_id == cls_names_inv["ball"]:
-                    tracks["ball"][frame_num][1] = {"bbox": bbox}
+            if ball_bbox is not None:
+                tracks["ball"][frame_num][1] = {"bbox": ball_bbox}
 
 
 
