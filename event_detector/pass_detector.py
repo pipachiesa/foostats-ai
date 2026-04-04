@@ -4,7 +4,7 @@ import math
 class PassDetector:
     PIXEL_TO_METER = 0.1  # rough fallback when field coords unavailable
 
-    def __init__(self, min_possession_frames=5, ball_travel_threshold=4.0, max_pass_frames=15, min_pass_gap=3):
+    def __init__(self, min_possession_frames=3, ball_travel_threshold=3.0, max_pass_frames=15, min_pass_gap=2):
         self.min_possession_frames = min_possession_frames
         self.ball_travel_threshold = ball_travel_threshold
         self.max_pass_frames = max_pass_frames
