@@ -23,6 +23,7 @@ class Tracker:
         # ID drift during broadcast camera pans.
         self.tracker = BotSort(
             reid_weights=None,
+            with_reid=False,
             device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
             half=False,
             track_high_thresh=0.25,
