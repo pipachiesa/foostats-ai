@@ -197,14 +197,13 @@ def main():
     pass_detector = PassDetector()
     passes = pass_detector.detect(all_tracks, team_ball_control)
 
-    team_passes = sum(1 for p in passes if p['type'] == 'pass' and p['from_team'] == 1)
-    team2_passes = sum(1 for p in passes if p['type'] == 'pass' and p['from_team'] == 2)
-    interceptions = sum(1 for p in passes if p['type'] == 'interception')
-
-    print(f"Passes detected: {len(passes)}")
+    passes_only = [e for e in passes if e['type'] == 'pass']
+    interceptions_list = [e for e in passes if e['type'] == 'interception']
+    print(f"Events: {len(passes_only)} passes, {len(interceptions_list)} interceptions")
+    team_passes = sum(1 for p in passes_only if p['from_team'] == 1)
+    team2_passes = sum(1 for p in passes_only if p['from_team'] == 2)
     print(f"  Team 1 → Team 1: {team_passes}")
     print(f"  Team 2 → Team 2: {team2_passes}")
-    print(f"  Interceptions: {interceptions}")
 
     passes_path = 'output_videos/passes.json'
 
