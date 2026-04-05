@@ -45,6 +45,8 @@ class PlayerBallAssigner:
         # Histéresis: el poseedor actual mantiene la pelota a menos que
         # otro jugador esté al menos un 12% más cerca (was 20%, too sticky).
         # Reduced threshold fixes possession heavily skewing to one team.
+        TEAM_CHANGE_FACTOR = 0.65  # cross-team switch requires being 35% closer
+
         if self._last_assigned != -1 and self._last_assigned in players:
             last_bbox = players[self._last_assigned]['bbox']
             last_dist = min(
@@ -53,7 +55,13 @@ class PlayerBallAssigner:
             )
             if last_dist < self.POSSESSION_MAX_DISTANCE:
                 if assigned_player != self._last_assigned:
-                    if minimum_distance > last_dist * 0.88:
+                    current_team = players[self._last_assigned].get('team', -1)
+                    candidate_team = players.get(assigned_player, {}).get('team', -1)
+                    is_team_change = (current_team != -1 and candidate_team != -1
+                                      and current_team != candidate_team)
+                    # Cross-team: require 35% closer; same team: require 12% closer
+                    threshold = last_dist * (TEAM_CHANGE_FACTOR if is_team_change else 0.88)
+                    if minimum_distance > threshold:
                         assigned_player = self._last_assigned
 
         if assigned_player != -1:

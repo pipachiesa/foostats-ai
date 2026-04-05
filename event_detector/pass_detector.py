@@ -4,10 +4,11 @@ import math
 class PassDetector:
     PIXEL_TO_METER = 0.1  # rough fallback when field coords unavailable
 
-    def __init__(self, min_possession_frames=3, ball_travel_threshold=2.0, max_pass_frames=15):
+    def __init__(self, min_possession_frames=3, ball_travel_threshold=2.0, max_pass_frames=15, min_pass_gap=3):
         self.min_possession_frames = min_possession_frames
         self.ball_travel_threshold = ball_travel_threshold
         self.max_pass_frames = max_pass_frames
+        self.min_pass_gap = min_pass_gap
 
     def detect(self, tracks, team_ball_control) -> list[dict]:
         """
@@ -175,7 +176,7 @@ class PassDetector:
         passes = []
 
         # Temporary debug — remove after verification
-        rejected = {'short_a': 0, 'short_b': 0, 'same_player': 0, 'gap': 0, 'dist': 0}
+        rejected = {'short_a': 0, 'short_b': 0, 'same_player': 0, 'gap': 0, 'instant': 0, 'dist': 0}
 
         for i in range(len(segments) - 1):
             seg_a = segments[i]
@@ -194,6 +195,9 @@ class PassDetector:
             gap = seg_b['frame_start'] - seg_a['frame_end']
             if gap > self.max_pass_frames:
                 rejected['gap'] += 1
+                continue
+            if gap < self.min_pass_gap:
+                rejected['instant'] += 1
                 continue
 
             # Get ball position at end of A's possession (non-interpolated preferred)
