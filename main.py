@@ -9,6 +9,8 @@ from camara_movement_estimator import CamaraMovementEstimator
 from view_transformer import ViewTransformer
 from speed_and_distance_estimator import SpeedAndDistanceEstimator
 from event_detector import PassDetector
+from boxmot import BotSort
+import torch
 import json
 
 
@@ -36,12 +38,17 @@ def main():
 
     team_assigner = TeamAssigner()
     team_assigner.assign_team_color(first_frame, first_tracks['players'][0])
-    # Reset tracker with same tuned params (must match Tracker.__init__)
-    tracker.tracker = sv.ByteTrack(
-        track_activation_threshold=0.25,
-        lost_track_buffer=60,
-        minimum_matching_threshold=0.8,
-        frame_rate=25
+    # Reset tracker so IDs start fresh (must match Tracker.__init__)
+    tracker.tracker = BotSort(
+        reid_weights=None,
+        with_reid=False,
+        device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+        half=False,
+        track_high_thresh=0.25,
+        track_low_thresh=0.1,
+        track_buffer=60,
+        match_thresh=0.8,
+        frame_rate=25,
     )
     team_assigner.player_team_dict = {} # limpiar IDs del frame de calibración
     print("Team colors calibrated.")
@@ -63,11 +70,16 @@ def main():
             team_assigner.player_team_dict = {}
             print("Re-calibrated team colors due to imbalance.")
     # Reset tracker again after the check so IDs start fresh for actual processing
-    tracker.tracker = sv.ByteTrack(
-        track_activation_threshold=0.25,
-        lost_track_buffer=60,
-        minimum_matching_threshold=0.8,
-        frame_rate=25
+    tracker.tracker = BotSort(
+        reid_weights=None,
+        with_reid=False,
+        device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+        half=False,
+        track_high_thresh=0.25,
+        track_low_thresh=0.1,
+        track_buffer=60,
+        match_thresh=0.8,
+        frame_rate=25,
     )
 
     # --- Initialize output video writer ---
