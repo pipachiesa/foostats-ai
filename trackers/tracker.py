@@ -5,8 +5,10 @@ import os
 import numpy as np
 import pandas as pd
 import cv2
+import torch
 import sys
 from pathlib import Path
+from boxmot import BoTSORT
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
@@ -17,11 +19,17 @@ class Tracker:
 
     def __init__(self, model_path):
         self.model = YOLO(model_path)
-        # supervision ByteTrack (boxmot/BoT-SORT is incompatible with Python 3.13).
-        self.tracker = sv.ByteTrack(
-            track_activation_threshold=0.25,
-            lost_track_buffer=60,
-            minimum_matching_threshold=0.8,
+        # BoTSORT with built-in camera motion compensation (CMC) to reduce
+        # ID drift during broadcast camera pans (boxmot 10.0.83).
+        self.tracker = BoTSORT(
+            reid_weights=None,
+            with_reid=False,
+            device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+            half=False,
+            track_high_thresh=0.2,
+            track_low_thresh=0.1,
+            track_buffer=120,
+            match_thresh=0.8,
             frame_rate=25,
         )
         print(f"  Tracker initialized: {type(self.tracker).__name__}")
@@ -131,23 +139,31 @@ class Tracker:
                 if len(ball_detections) > 0:
                     ball_bbox = ball_detections.xyxy[0].tolist()
 
-            # --- Non-ball: track with ByteTrack ---
+            # --- Non-ball: track with BoTSORT ---
             non_ball = detection_supervision[~ball_mask]
-            # ByteTrack consumes/returns sv.Detections, assigning tracker_id.
-            tracked = self.tracker.update_with_detections(non_ball)
+            if len(non_ball) > 0:
+                # boxmot expects [x1, y1, x2, y2, conf, class_id]
+                dets_np = np.column_stack([
+                    non_ball.xyxy,
+                    non_ball.confidence,
+                    non_ball.class_id.astype(float),
+                ])
+            else:
+                dets_np = np.empty((0, 6))
+
+            # Pass the actual frame for camera motion compensation
+            tracked = self.tracker.update(dets_np, frames[frame_num])
 
             tracks["players"].append({})
             tracks["referees"].append({})
             tracks["ball"].append({})
             tracks["goalkeepers"].append({})
 
-            # Parse ByteTrack output: an sv.Detections with .tracker_id populated.
-            for i in range(len(tracked)):
-                if tracked.tracker_id is None or tracked.tracker_id[i] is None:
-                    continue
-                bbox = tracked.xyxy[i].tolist()
-                track_id = int(tracked.tracker_id[i])
-                cls_id = int(tracked.class_id[i]) if tracked.class_id is not None else -1
+            # Parse BoTSORT output: [x1, y1, x2, y2, track_id, conf, class_id, ...]
+            for trk in tracked:
+                bbox = trk[0:4].tolist()
+                track_id = int(trk[4])
+                cls_id = int(trk[6]) if len(trk) > 6 else -1
 
                 if cls_id == cls_names_inv.get("player", -1):
                     tracks["players"][frame_num][track_id] = {"bbox": bbox}
