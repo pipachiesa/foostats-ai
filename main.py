@@ -6,18 +6,16 @@ import numpy as np
 from teams_assigner import TeamAssigner
 from player_ball_assigner import PlayerBallAssigner
 from camara_movement_estimator import CamaraMovementEstimator
-from view_transformer import ViewTransformer
+from view_transformer import PitchViewTransformer
 from speed_and_distance_estimator import SpeedAndDistanceEstimator
 from event_detector import PassDetector
-from boxmot import BotSort
-import torch
 import json
 
 
 def main():
-    VIDEO_PATH = 'input_videos/08fd33_4.mp4'
+    VIDEO_PATH = 'input_videos/psg_bayern_720p.mp4'
     MODEL_PATH = 'models/best.pt'
-    OUTPUT_PATH = 'output_videos/output_video.avi'
+    OUTPUT_PATH = 'output_videos/psg_bayern_output.avi'
     BATCH_SIZE = 500
     OVERLAP = 30
 
@@ -39,15 +37,10 @@ def main():
     team_assigner = TeamAssigner()
     team_assigner.assign_team_color(first_frame, first_tracks['players'][0])
     # Reset tracker so IDs start fresh (must match Tracker.__init__)
-    tracker.tracker = BotSort(
-        reid_weights=None,
-        with_reid=False,
-        device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
-        half=False,
-        track_high_thresh=0.25,
-        track_low_thresh=0.1,
-        track_buffer=60,
-        match_thresh=0.8,
+    tracker.tracker = sv.ByteTrack(
+        track_activation_threshold=0.25,
+        lost_track_buffer=60,
+        minimum_matching_threshold=0.8,
         frame_rate=25,
     )
     team_assigner.player_team_dict = {} # limpiar IDs del frame de calibración
@@ -70,15 +63,10 @@ def main():
             team_assigner.player_team_dict = {}
             print("Re-calibrated team colors due to imbalance.")
     # Reset tracker again after the check so IDs start fresh for actual processing
-    tracker.tracker = BotSort(
-        reid_weights=None,
-        with_reid=False,
-        device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
-        half=False,
-        track_high_thresh=0.25,
-        track_low_thresh=0.1,
-        track_buffer=60,
-        match_thresh=0.8,
+    tracker.tracker = sv.ByteTrack(
+        track_activation_threshold=0.25,
+        lost_track_buffer=60,
+        minimum_matching_threshold=0.8,
         frame_rate=25,
     )
 
@@ -92,7 +80,7 @@ def main():
     all_tracks = {'players': [], 'ball': [], 'goalkeepers': [], 'referees': []}
     player_assigner = PlayerBallAssigner()
     camera_movement_estimator = CamaraMovementEstimator(first_frame)
-    view_transformer = ViewTransformer()
+    view_transformer = PitchViewTransformer()
     speed_and_distance_estimator = SpeedAndDistanceEstimator(frame_rate=fps)
 
     # --- Process windows ---
@@ -106,6 +94,14 @@ def main():
             # 1. Detect + track
             window_tracks = tracker.get_object_tracks(window_frames, read_from_stub=False)
 
+            # 1b. Ball interpolation — must run BEFORE positions/camera/transform so the
+            #     interpolated ball frames flow through the same position ->
+            #     position_adjusted -> position_transformed chain as every other object.
+            #     (Previously this ran AFTER the transform and replaced the ball dicts,
+            #     wiping position_transformed and forcing pass_detector onto a wrong
+            #     pixel-scaled fallback — the source of out-of-range ball coordinates.)
+            window_tracks['ball'] = tracker.interpolate_ball_positions(window_tracks['ball'])
+
             # 2. Add positions
             tracker.add_position_to_tracks(window_tracks)
 
@@ -117,11 +113,8 @@ def main():
                 window_tracks, camera_movement_per_frame
             )
 
-            # 4. Perspective transform
-            view_transformer.add_transformed_position_to_tracks(window_tracks)
-
-            # 5. Ball interpolation
-            window_tracks['ball'] = tracker.interpolate_ball_positions(window_tracks['ball'])
+            # 4. Perspective transform (per-frame pitch keypoint homography)
+            view_transformer.add_transformed_position_to_tracks(window_tracks, window_frames)
 
             # 6. Speed and distance (with carry-over state)
             accumulated_distance = speed_and_distance_estimator.add_speed_and_distance_to_tracks(

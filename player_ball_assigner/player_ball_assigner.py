@@ -7,7 +7,11 @@ from utils import get_center_of_bbox, measure_distance
 
 
 class PlayerBallAssigner:
-    POSSESSION_MAX_DISTANCE = 120  # ~2.5m at typical broadcast camera scale
+    # Threshold is in PIXELS. assign_ball_to_player measures distance between raw
+    # image-space bboxes (ball_bbox and player['bbox']), NOT field meters — so this
+    # is unaffected by the view-transformer cm->m / centering fix and stays at 120px
+    # (~2.5m at typical broadcast camera scale).
+    POSSESSION_MAX_DISTANCE = 120
 
     def __init__(self):
         self._last_assigned = -1  # estado para histéresis

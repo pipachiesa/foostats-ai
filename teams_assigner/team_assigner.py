@@ -88,3 +88,42 @@ class TeamAssigner:
             return 1
         else:
             return 2
+
+    def get_goalkeeper_team_by_centroid(self, player_track, goalkeeper_bbox):
+        """
+        Assign a goalkeeper to a team by proximity to that team's player centroid.
+
+        Color clustering is unreliable for keepers (distinct kit / GK gloves), and
+        the half-field heuristic in get_goalkeeper_team breaks down whenever the
+        broadcast camera is panned to one side. This instead places the keeper with
+        whichever team's outfield players are, on average, closer to them in image
+        space.
+
+        `player_track` is a single frame's player dict:
+            {track_id: {"bbox": [x1, y1, x2, y2], "team": 1|2, ...}}
+        Returns team_id 1 or 2. Falls back to team 1 if no teamed players exist yet.
+        """
+        gk_x = (goalkeeper_bbox[0] + goalkeeper_bbox[2]) / 2
+        gk_y = (goalkeeper_bbox[1] + goalkeeper_bbox[3]) / 2
+
+        sums = {1: [0.0, 0.0, 0], 2: [0.0, 0.0, 0]}
+        for _, info in player_track.items():
+            team = info.get("team")
+            if team not in (1, 2):
+                continue
+            bbox = info["bbox"]
+            sums[team][0] += (bbox[0] + bbox[2]) / 2
+            sums[team][1] += (bbox[1] + bbox[3]) / 2
+            sums[team][2] += 1
+
+        best_team = 1
+        best_dist = float("inf")
+        for team, (sx, sy, n) in sums.items():
+            if n == 0:
+                continue
+            cx, cy = sx / n, sy / n
+            dist = (cx - gk_x) ** 2 + (cy - gk_y) ** 2
+            if dist < best_dist:
+                best_dist = dist
+                best_team = team
+        return best_team
